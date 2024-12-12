@@ -9,8 +9,7 @@ function DeckBuilder() {
   const [isPublic, setIsPublic] = useState(false);
   const [commander, setCommander] = useState(null);
   const [commanderInput, setCommanderInput] = useState('');
-  const [cardInput, setCardInput] = useState('');
-  const [quantity, setQuantity] = useState(1);
+  const [bulkInput, setBulkInput] = useState('');
   const [cards, setCards] = useState([]);
   const [cardImages, setCardImages] = useState({});
   const [searchResults, setSearchResults] = useState([]);
@@ -54,8 +53,8 @@ function DeckBuilder() {
 
     try {
       const query = isCommanderSearch 
-        ? `${input}+t:legendary+t:creature` 
-        : input;
+        ? `"${input}" (t:legendary t:creature)` 
+        : `"${input}"`;
       
       const response = await fetch(
         `https://api.scryfall.com/cards/search?q=${encodeURIComponent(query)}`
@@ -68,8 +67,21 @@ function DeckBuilder() {
       setSearchResults(results);
     } catch (error) {
       console.error('Error searching cards:', error);
+      setSearchResults([]);
     }
   };
+
+  const processBulkInput = async () => {
+    const lines = bulkInput.split('\n');
+    const cardList = lines.map(line => {
+      const match = line.match(/^(\d+)x?\s+(.+)$/);
+      return match ? { name: match[2].trim(), quantity: parseInt(match[1]) } : null;
+    }).filter(Boolean);
+
+    setCards([...cards, ...cardList]);
+    setBulkInput('');
+  };
+
   const fetchDeckData = async () => {
     try {
       const { data: deck, error: deckError } = await supabase
@@ -90,24 +102,18 @@ function DeckBuilder() {
       setDeckName(deck.name);
       setDescription(deck.description || '');
       setIsPublic(deck.is_public);
-      setCommander({
-        name: deck.commander,
-        image: deck.commander_image
-      });
+      if (deck.commander) {
+        setCommander({
+          name: deck.commander,
+          image: deck.commander_image
+        });
+      }
       setCards(cards.map(card => ({
         name: card.card_name,
         quantity: card.quantity
       })));
     } catch (error) {
       console.error('Error fetching deck:', error);
-    }
-  };
-
-  const addCard = () => {
-    if (cardInput.trim()) {
-      setCards([...cards, { name: cardInput.trim(), quantity }]);
-      setCardInput('');
-      setQuantity(1);
     }
   };
 
@@ -221,79 +227,80 @@ function DeckBuilder() {
         </label>
       </div>
 
-      <div className="mb-8">
-        <h3 className="text-xl font-bold mb-4">Choose Your Commander</h3>
-        <div className="flex space-x-2">
-          <input
-            type="text"
-            placeholder="Search for a legendary creature..."
-            value={commanderInput}
-            onChange={(e) => {
-              setCommanderInput(e.target.value);
-              searchCard(e.target.value, true);
-            }}
-            className="flex-1 p-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-          />
-        </div>
+      <div className="mb-8 p-6 bg-gray-50 rounded-lg border-2 border-gray-200">
+        <h3 className="text-xl font-bold mb-4 flex items-center">
+          <span className="mr-2">Command Zone</span>
+          {commander && (
+            <span className="text-sm font-normal text-green-600">
+              ✓ Commander Selected
+            </span>
+          )}
+        </h3>
         
-        {commander && (
-          <div className="mt-4 max-w-xs">
-            <img 
-              src={commander.image}
-              alt={commander.name}
-              className="w-full rounded-lg shadow-lg"
+        <div className="flex gap-6">
+          <div className="flex-1">
+            <input
+              type="text"
+              placeholder="Search for your commander..."
+              value={commanderInput}
+              onChange={(e) => {
+                setCommanderInput(e.target.value);
+                searchCard(e.target.value, true);
+              }}
+              className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             />
-            <p className="mt-2 text-center font-bold">{commander.name}</p>
-          </div>
-        )}
-
-        {searchResults.length > 0 && (
-          <div className="mt-2 max-h-60 overflow-y-auto border rounded-lg shadow-lg">
-            {searchResults.map((card) => (
-              <div
-                key={card.name}
-                onClick={() => {
-                  setCommander(card);
-                  setCommanderInput('');
-                  setSearchResults([]);
-                }}
-                className="p-2 hover:bg-gray-100 cursor-pointer transition-colors"
-              >
-                {card.name}
+            
+            {searchResults.length > 0 && (
+              <div className="mt-2 max-h-60 overflow-y-auto border rounded-lg shadow-lg bg-white">
+                {searchResults.map((card) => (
+                  <div
+                    key={card.name}
+                    onClick={() => {
+                      setCommander(card);
+                      setCommanderInput('');
+                      setSearchResults([]);
+                    }}
+                    className="p-3 hover:bg-blue-50 cursor-pointer transition-colors flex items-center gap-3"
+                  >
+                    <img 
+                      src={card.image} 
+                      alt={card.name} 
+                      className="w-12 h-12 object-cover rounded"
+                    />
+                    <span>{card.name}</span>
+                  </div>
+                ))}
               </div>
-            ))}
+            )}
           </div>
-        )}
+          
+          {commander && (
+            <div className="w-48">
+              <img 
+                src={commander.image}
+                alt={commander.name}
+                className="w-full rounded-lg shadow-lg"
+              />
+              <p className="mt-2 text-center font-medium">{commander.name}</p>
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="mb-8">
-        <div className="flex space-x-2">
-          <input
-            type="text"
-            placeholder="Card Name"
-            value={cardInput}
-            onChange={(e) => {
-              setCardInput(e.target.value);
-              searchCard(e.target.value);
-            }}
-            className="flex-1 p-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-          />
-          
-          <input
-            type="number"
-            min="1"
-            value={quantity}
-            onChange={(e) => setQuantity(parseInt(e.target.value))}
-            className="w-20 p-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-          />
-          
-          <button 
-            onClick={addCard}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-          >
-            Add Card
-          </button>
-        </div>
+        <h3 className="text-xl font-bold mb-4">Bulk Add Cards</h3>
+        <textarea
+          placeholder="Enter cards (format: '1x Card Name' or '1 Card Name')"
+          value={bulkInput}
+          onChange={(e) => setBulkInput(e.target.value)}
+          className="w-full h-48 p-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+        />
+        <button 
+          onClick={processBulkInput}
+          className="mt-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+        >
+          Add Cards
+        </button>
       </div>
 
       <div>
