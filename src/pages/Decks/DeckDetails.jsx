@@ -2,11 +2,96 @@ import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
 
-function DeckDetails() {
+function CardLink({ card }) {
+  const [showHover, setShowHover] = useState(false);
+  const [showModal, setShowModal] = useState(false);
+  const [cardDetails, setCardDetails] = useState(null);
+  const [position, setPosition] = useState({ x: 0, y: 0 });
+
+  const handleMouseMove = (e) => {
+    setPosition({
+      x: e.clientX + 20,
+      y: e.clientY - 100
+    });
+  };
+
+  const handleCardClick = async (e) => {
+    e.stopPropagation();
+    if (showModal) {
+      setShowModal(false);
+      setCardDetails(null);
+    } else {
+      try {
+        const response = await fetch(
+          `https://api.scryfall.com/cards/named?exact=${encodeURIComponent(card.card_name)}`
+        );
+        const data = await response.json();
+        setCardDetails(data);
+        setShowModal(true);
+      } catch (error) {
+        console.error('Error fetching card details:', error);
+      }
+    }
+  };
+
+  return (
+    <div 
+      className="relative cursor-pointer"
+      onMouseMove={handleMouseMove}
+      onMouseEnter={() => setShowHover(true)}
+      onMouseLeave={() => setShowHover(false)}
+      onClick={handleCardClick}
+    >
+      <span className="hover:text-blue-600">{card.quantity}x {card.card_name}</span>
+      
+      {/* Hover Preview */}
+      {showHover && (
+        <div 
+          className="fixed z-50 shadow-xl rounded-lg"
+          style={{ left: position.x, top: position.y }}
+        >
+          <img
+            src={`https://api.scryfall.com/cards/named?exact=${encodeURIComponent(card.card_name)}&format=image&version=small`}
+            alt={card.card_name}
+            className="rounded-lg w-32"
+          />
+        </div>
+      )}
+
+      {/* Click Modal */}
+      {showModal && cardDetails && (
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" 
+          onClick={() => setShowModal(false)}
+        >
+          <div className="bg-white p-6 rounded-lg max-w-2xl">
+            <div className="flex gap-6">
+              <img
+                src={cardDetails.image_uris?.normal}
+                alt={cardDetails.name}
+                className="w-48 rounded-lg"
+              />
+              <div>
+                <h3 className="text-xl font-bold">{cardDetails.name}</h3>
+                <p className="text-gray-600">{cardDetails.mana_cost}</p>
+                <p className="mt-2">{cardDetails.type_line}</p>
+                <p className="mt-4">{cardDetails.oracle_text}</p>
+                {cardDetails.power && (
+                  <p className="mt-2">Power/Toughness: {cardDetails.power}/{cardDetails.toughness}</p>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}function DeckDetails() {
   const { id } = useParams();
   const [deck, setDeck] = useState(null);
   const [loading, setLoading] = useState(true);
   const [bulkInput, setBulkInput] = useState('');
+  const [cardTypes, setCardTypes] = useState({});
 
   useEffect(() => {
     fetchDeckDetails();
@@ -19,24 +104,38 @@ function DeckDetails() {
       .eq('id', id)
       .single();
 
-    if (error) {
-      console.error('Error fetching deck:', error);
-    } else {
+    if (!error) {
       setDeck(data);
+      fetchCardTypes(data.deck_cards);
     }
     setLoading(false);
   };
 
-  const deleteCard = async (cardId) => {
-    const { error } = await supabase
-      .from('deck_cards')
-      .delete()
-      .eq('id', cardId);
-
-    if (!error) {
-      fetchDeckDetails();
+  const fetchCardTypes = async (cards) => {
+    const types = {};
+    for (const card of cards) {
+      try {
+        const response = await fetch(
+          `https://api.scryfall.com/cards/named?exact=${encodeURIComponent(card.card_name)}`
+        );
+        const data = await response.json();
+        types[card.card_name] = data.type_line.split('—')[0].trim().split(' ');
+      } catch (error) {
+        console.error('Error fetching card type:', error);
+      }
     }
+    setCardTypes(types);
   };
+
+  const cardCategories = deck?.deck_cards ? {
+    creatures: deck.deck_cards.filter(card => cardTypes[card.card_name]?.includes('Creature')),
+    instants: deck.deck_cards.filter(card => cardTypes[card.card_name]?.includes('Instant')),
+    sorceries: deck.deck_cards.filter(card => cardTypes[card.card_name]?.includes('Sorcery')),
+    artifacts: deck.deck_cards.filter(card => cardTypes[card.card_name]?.includes('Artifact')),
+    enchantments: deck.deck_cards.filter(card => cardTypes[card.card_name]?.includes('Enchantment')),
+    planeswalkers: deck.deck_cards.filter(card => cardTypes[card.card_name]?.includes('Planeswalker')),
+    lands: deck.deck_cards.filter(card => cardTypes[card.card_name]?.includes('Land')),
+  } : {};
 
   const deleteEntireDecklist = async () => {
     const { error } = await supabase
@@ -65,9 +164,7 @@ function DeckDetails() {
         .from('deck_cards')
         .insert(cardList);
 
-      if (error) {
-        console.log('Supabase error:', error);
-      } else {
+      if (!error) {
         fetchDeckDetails();
         setBulkInput('');
       }
@@ -78,64 +175,59 @@ function DeckDetails() {
   if (!deck) return <div>Deck not found</div>;
 
   return (
-    <div className="max-w-7xl mx-auto p-6">
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+    <div className="max-w-4xl mx-auto p-6">
+      <div className="flex gap-8">
         {/* Commander Section */}
-        <div className="md:col-span-1">
+        <div className="w-1/3">
           <img 
             src={deck.commander_image} 
             alt={deck.commander}
             className="w-full rounded-lg shadow-lg"
           />
-          <h1 className="text-3xl font-bold mt-4">{deck.name}</h1>
-          <p className="text-xl text-gray-600">{deck.commander}</p>
-          <button
-            onClick={deleteEntireDecklist}
-            className="mt-4 bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700"
-          >
-            Delete Entire Decklist
-          </button>
-        </div>
-
-        {/* Card Addition Section */}
-        <div className="md:col-span-2">
-          <div className="mb-8">
-            <h3 className="text-xl font-bold mb-4">Add Cards</h3>
+          <h1 className="text-2xl font-bold mt-4">{deck.name}</h1>
+          <p className="text-gray-600">{deck.commander}</p>
+          
+          <div className="mt-4">
             <textarea
               placeholder="Enter cards (format: '1x Card Name' or '1 Card Name')"
               value={bulkInput}
               onChange={(e) => setBulkInput(e.target.value)}
-              className="w-full h-48 p-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              className="w-full h-32 p-2 border rounded-lg"
             />
             <button 
               onClick={processBulkInput}
-              className="mt-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              className="w-full mt-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
             >
               Add Cards
             </button>
+            <button
+              onClick={deleteEntireDecklist}
+              className="w-full mt-2 bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700"
+            >
+              Delete Entire Decklist
+            </button>
           </div>
+        </div>
 
-          {/* Decklist Section */}
-          <div>
-            <h2 className="text-2xl font-bold mb-4">Decklist</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {deck.deck_cards.map((card) => (
-                <div 
-                  key={card.id} 
-                  className="relative group cursor-pointer"
-                >
-                  <div className="flex justify-between py-1">
-                    <span>{card.quantity}x {card.card_name}</span>
-                    <button
-                      onClick={() => deleteCard(card.id)}
-                      className="text-red-600 hover:text-red-800"
-                    >
-                      ×
-                    </button>
+        {/* Decklist Section */}
+        <div className="w-2/3">
+          <div className="space-y-6">
+            {Object.entries(cardCategories).map(([category, cards]) => (
+              cards?.length > 0 && (
+                <div key={category}>
+                  <h3 className="text-xl font-bold capitalize mb-2">
+                    {category} ({cards.reduce((sum, card) => sum + card.quantity, 0)})
+                  </h3>
+                  <div className="space-y-1">
+                    {cards.map(card => (
+                      <div key={card.id} className="flex justify-between hover:bg-gray-100 p-2 rounded">
+                        <CardLink card={card} />
+                      </div>
+                    ))}
                   </div>
                 </div>
-              ))}
-            </div>
+              )
+            ))}
           </div>
         </div>
       </div>
