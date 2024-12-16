@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
-
 function CardLink({ card }) {
   const [showHover, setShowHover] = useState(false);
   const [showModal, setShowModal] = useState(false);
@@ -35,15 +34,17 @@ function CardLink({ card }) {
   };
 
   return (
-    <div 
-      className="relative cursor-pointer"
-      onMouseMove={handleMouseMove}
-      onMouseEnter={() => setShowHover(true)}
-      onMouseLeave={() => setShowHover(false)}
-      onClick={handleCardClick}
-    >
-      <span className="hover:text-blue-600">{card.quantity}x {card.card_name}</span>
-      
+    <div className="flex justify-between hover:bg-gray-100 p-2 rounded">
+      <span 
+        className="cursor-pointer hover:text-blue-600"
+        onMouseMove={handleMouseMove}
+        onMouseEnter={() => setShowHover(true)}
+        onMouseLeave={() => setShowHover(false)}
+        onClick={handleCardClick}
+      >
+        {card.quantity}x {card.card_name}
+      </span>
+
       {/* Hover Preview */}
       {showHover && (
         <div 
@@ -86,7 +87,8 @@ function CardLink({ card }) {
       )}
     </div>
   );
-}function DeckDetails() {
+}
+function DeckDetails() {
   const { id } = useParams();
   const [deck, setDeck] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -173,12 +175,11 @@ function CardLink({ card }) {
 
   if (loading) return <div>Loading...</div>;
   if (!deck) return <div>Deck not found</div>;
-
   return (
-    <div className="max-w-4xl mx-auto p-6">
-      <div className="flex gap-8">
+    <div className="max-w-full mx-auto p-6">
+      <div className="flex">
         {/* Commander Section */}
-        <div className="w-1/3">
+        <div className="w-64 flex-shrink-0 mr-8">
           <img 
             src={deck.commander_image} 
             alt={deck.commander}
@@ -210,29 +211,24 @@ function CardLink({ card }) {
         </div>
 
         {/* Decklist Section */}
-        <div className="w-2/3">
-          <div className="space-y-6">
-            {Object.entries(cardCategories).map(([category, cards]) => (
-              cards?.length > 0 && (
-                <div key={category}>
-                  <h3 className="text-xl font-bold capitalize mb-2">
-                    {category} ({cards.reduce((sum, card) => sum + card.quantity, 0)})
-                  </h3>
-                  <div className="space-y-1">
-                    {cards.map(card => (
-                      <div key={card.id} className="flex justify-between hover:bg-gray-100 p-2 rounded">
-                        <CardLink card={card} />
-                      </div>
-                    ))}
-                  </div>
+        <div style={{display: 'grid', gridTemplateColumns: 'repeat(3, minmax(300px, 1fr))', gap: '2rem', width: '100%'}}>
+          {Object.entries(cardCategories).map(([category, cards]) => (
+            cards?.length > 0 && (
+              <div key={category}>
+                <h3 className="text-xl font-bold capitalize mb-2">
+                  {category} ({cards.reduce((sum, card) => sum + card.quantity, 0)})
+                </h3>
+                <div className="space-y-1">
+                  {cards.map(card => (
+                    <CardLink key={card.id} card={card} />
+                  ))}
                 </div>
-              )
-            ))}
-          </div>
+              </div>
+            )
+          ))}
         </div>
       </div>
     </div>
   );
 }
-
 export default DeckDetails;
