@@ -1,6 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, PieChart, Pie, Cell } from 'recharts';
+
+const COLORS = {
+  W: '#F8E7B9',
+  U: '#2B9AD6',
+  B: '#382B3F',
+  R: '#E24D4B',
+  G: '#427A5B',
+  Multi: '#DEB974',
+  Colorless: '#9DA5AD'
+};
+
 function CardLink({ card }) {
   const [showHover, setShowHover] = useState(false);
   const [showModal, setShowModal] = useState(false);
@@ -45,7 +57,6 @@ function CardLink({ card }) {
         {card.quantity}x {card.card_name}
       </span>
 
-      {/* Hover Preview */}
       {showHover && (
         <div 
           className="fixed z-50 shadow-xl rounded-lg"
@@ -59,7 +70,6 @@ function CardLink({ card }) {
         </div>
       )}
 
-      {/* Click Modal */}
       {showModal && cardDetails && (
         <div 
           className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" 
@@ -88,6 +98,65 @@ function CardLink({ card }) {
     </div>
   );
 }
+
+const calculateManaCurve = (cards, cardDetails) => {
+  const curve = Array(8).fill(0);
+  
+  cards.forEach(card => {
+    const cmc = cardDetails[card.card_name]?.cmc || 0;
+    const index = Math.min(cmc, 7);
+    curve[index] += card.quantity;
+  });
+
+  return Array(8).fill().map((_, i) => ({
+    cmc: i === 7 ? '7+' : i,
+    count: curve[i]
+  }));
+};
+
+const calculateAverageMV = (cards, cardDetails) => {
+  let totalMV = 0;
+  let totalNonLandCards = 0;
+  
+  cards.forEach(card => {
+    if (!cardDetails[card.card_name]?.type_line.includes('Land')) {
+      totalMV += (cardDetails[card.card_name]?.cmc || 0) * card.quantity;
+      totalNonLandCards += card.quantity;
+    }
+  });
+
+  return (totalMV / totalNonLandCards).toFixed(2);
+};
+
+const calculateColorDistribution = (cards, cardDetails) => {
+  const colors = { W: 0, U: 0, B: 0, R: 0, G: 0, Multi: 0, Colorless: 0 };
+  
+  cards.forEach(card => {
+    const cardColors = cardDetails[card.card_name]?.colors || [];
+    if (cardColors.length === 0) {
+      colors.Colorless += card.quantity;
+    } else if (cardColors.length > 1) {
+      colors.Multi += card.quantity;
+    } else {
+      colors[cardColors[0]] += card.quantity;
+    }
+  });
+
+  return Object.entries(colors)
+    .filter(([_, value]) => value > 0)
+    .map(([name, value]) => ({
+      name,
+      value
+    }));
+};
+
+const calculateTypeDistribution = (cardCategories) => {
+  return Object.entries(cardCategories).map(([category, cards]) => ({
+    name: category,
+    value: cards.reduce((sum, card) => sum + card.quantity, 0)
+  })).filter(type => type.value > 0);
+};
+
 function DeckDetails() {
   const { id } = useParams();
   const [deck, setDeck] = useState(null);
@@ -121,7 +190,11 @@ function DeckDetails() {
           `https://api.scryfall.com/cards/named?exact=${encodeURIComponent(card.card_name)}`
         );
         const data = await response.json();
-        types[card.card_name] = data.type_line.split('—')[0].trim().split(' ');
+        types[card.card_name] = {
+          type_line: data.type_line.split('—')[0].trim().split(' '),
+          cmc: data.cmc,
+          colors: data.colors || []
+        };
       } catch (error) {
         console.error('Error fetching card type:', error);
       }
@@ -130,13 +203,13 @@ function DeckDetails() {
   };
 
   const cardCategories = deck?.deck_cards ? {
-    creatures: deck.deck_cards.filter(card => cardTypes[card.card_name]?.includes('Creature')),
-    instants: deck.deck_cards.filter(card => cardTypes[card.card_name]?.includes('Instant')),
-    sorceries: deck.deck_cards.filter(card => cardTypes[card.card_name]?.includes('Sorcery')),
-    artifacts: deck.deck_cards.filter(card => cardTypes[card.card_name]?.includes('Artifact')),
-    enchantments: deck.deck_cards.filter(card => cardTypes[card.card_name]?.includes('Enchantment')),
-    planeswalkers: deck.deck_cards.filter(card => cardTypes[card.card_name]?.includes('Planeswalker')),
-    lands: deck.deck_cards.filter(card => cardTypes[card.card_name]?.includes('Land')),
+    creatures: deck.deck_cards.filter(card => cardTypes[card.card_name]?.type_line.includes('Creature')),
+    instants: deck.deck_cards.filter(card => cardTypes[card.card_name]?.type_line.includes('Instant')),
+    sorceries: deck.deck_cards.filter(card => cardTypes[card.card_name]?.type_line.includes('Sorcery')),
+    artifacts: deck.deck_cards.filter(card => cardTypes[card.card_name]?.type_line.includes('Artifact')),
+    enchantments: deck.deck_cards.filter(card => cardTypes[card.card_name]?.type_line.includes('Enchantment')),
+    planeswalkers: deck.deck_cards.filter(card => cardTypes[card.card_name]?.type_line.includes('Planeswalker')),
+    lands: deck.deck_cards.filter(card => cardTypes[card.card_name]?.type_line.includes('Land')),
   } : {};
 
   const deleteEntireDecklist = async () => {
@@ -175,11 +248,12 @@ function DeckDetails() {
 
   if (loading) return <div>Loading...</div>;
   if (!deck) return <div>Deck not found</div>;
+
   return (
     <div className="max-w-full mx-auto p-6">
-      <div className="flex">
+      <div className="w-full">
         {/* Commander Section */}
-        <div className="w-64 flex-shrink-0 mr-8">
+        <div className="w-96 mb-8">
           <img 
             src={deck.commander_image} 
             alt={deck.commander}
@@ -210,8 +284,72 @@ function DeckDetails() {
           </div>
         </div>
 
-        {/* Decklist Section */}
-        <div style={{display: 'grid', gridTemplateColumns: 'repeat(3, minmax(300px, 1fr))', gap: '2rem', width: '100%'}}>
+        {/* Charts Row */}
+        <div style={{ display: 'inline-flex', width: '100%' }}>
+          {/* Mana Curve */}
+          <div style={{ width: '33%', marginRight: '1rem' }} className="bg-white p-4 rounded-lg shadow">
+            <div className="flex justify-between items-center mb-2">
+              <h2 className="text-lg font-bold">Mana Curve</h2>
+              <div className="text-sm">
+                Avg MV: <span className="font-bold">{calculateAverageMV(deck.deck_cards, cardTypes)}</span>
+              </div>
+            </div>
+            <BarChart width={350} height={200} data={calculateManaCurve(deck.deck_cards, cardTypes)}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="cmc" />
+              <YAxis />
+              <Tooltip />
+              <Bar dataKey="count" fill="#8884d8" name="Cards" />
+            </BarChart>
+          </div>
+
+          {/* Color Distribution */}
+          <div style={{ width: '33%', marginRight: '1rem' }} className="bg-white p-4 rounded-lg shadow">
+            <h2 className="text-lg font-bold mb-2">Colors</h2>
+            <PieChart width={350} height={200}>
+              <Pie
+                data={calculateColorDistribution(deck.deck_cards, cardTypes)}
+                cx={175}
+                cy={100}
+                innerRadius={40}
+                outerRadius={70}
+                paddingAngle={5}
+                dataKey="value"
+              >
+                {calculateColorDistribution(deck.deck_cards, cardTypes).map((entry, index) => (
+                  <Cell key={`cell-${index}`} fill={COLORS[entry.name]} />
+                ))}
+              </Pie>
+              <Tooltip />
+              <Legend />
+            </PieChart>
+          </div>
+
+          {/* Type Distribution */}
+          <div style={{ width: '33%' }} className="bg-white p-4 rounded-lg shadow">
+            <h2 className="text-lg font-bold mb-2">Types</h2>
+            <PieChart width={350} height={200}>
+              <Pie
+                data={calculateTypeDistribution(cardCategories)}
+                cx={175}
+                cy={100}
+                innerRadius={40}
+                outerRadius={70}
+                paddingAngle={5}
+                dataKey="value"
+              >
+                {calculateTypeDistribution(cardCategories).map((entry, index) => (
+                  <Cell key={`cell-${index}`} fill={`hsl(${index * 45}, 70%, 50%)`} />
+                ))}
+              </Pie>
+              <Tooltip />
+              <Legend />
+            </PieChart>
+          </div>
+        </div>
+
+        {/* Decklist Grid */}
+        <div style={{display: 'grid', gridTemplateColumns: 'repeat(3, minmax(300px, 1fr))', gap: '2rem'}}>
           {Object.entries(cardCategories).map(([category, cards]) => (
             cards?.length > 0 && (
               <div key={category}>
@@ -231,4 +369,5 @@ function DeckDetails() {
     </div>
   );
 }
+
 export default DeckDetails;
